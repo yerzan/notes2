@@ -1,9 +1,8 @@
 <!DOCTYPE html>
-
 <html lang="pl">
 <head>
     <meta charset="UTF-8">
-    <title>Project</title>
+    <title>Project - Wyjaśnienie kodu</title>
     <style>
 body {
     font-family: "Segoe UI", Arial, sans-serif;
@@ -36,31 +35,6 @@ h2 {
     box-shadow: 0 5px 15px rgba(0,0,0,.1);
 }
 
-pre {
-    background: #272822;
-    color: #f8f8f2;
-    padding: 25px;
-    border-radius: 10px;
-    overflow-x: auto;
-
-    white-space: pre-wrap;
-    word-break: break-word;
-
-    font-family: Consolas, "Courier New", monospace;
-    font-size: 15px;
-    line-height: 1.8;
-}
-
-code {
-    display: block;
-}
-
-p {
-    font-size: 16px;
-    line-height: 1.6;
-}
-
-/* ── srednia.asm – czytelny widok ─────────────────────── */
 .asm-viewer {
     display: flex;
     flex-direction: column;
@@ -117,271 +91,467 @@ p {
     white-space: pre-wrap;
     word-break: break-word;
 }
-</style>
-
+    </style>
 </head>
 <body>
 
-<h1>Project</h1>
+<h1>Wyjaśnienie kodu (Wersja EXE)</h1>
 
 <div class="zadanie">
-    <h2>srednia-exe.asm</h2>
+    <h2>Ogólne Tłumaczenie Bloków</h2>
+    <div class="asm-viewer">
+        
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 1: Definicje systemowe i sekcje danych</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">extern   _printf, _scanf, _getchar, _exit  ; Import funkcji z biblioteki C
+global   _main                             ; Punkt startowy programu
+section  .data                             ; Sekcja na zmienne stałe (zainicjowane)
+format_1 db "%d ocena: ", 0
+...
+ocena    dq 0.0                            ; Zmienne w pamięci (w wersji EXE są globalne)</div>
+                <div class="asm-desc">Tutaj komunikuję się z systemem operacyjnym. Używam słowa extern, aby poinformować kompilator, że funkcje printf czy scanf zostaną dołączone z zewnętrznej biblioteki C podczas linkowania. W sekcji .data trzymam wszystkie zmienne globalne. Nie muszę już używać trików z call getaddr, bo mam sekcję danych, gdzie adresy są stałe.</div>
+            </div>
+        </div>
 
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 2: Inicjalizacja (Wersja EXE)</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">_main:
+         finit  ; inicjalizacja koprocesora</div>
+                <div class="asm-desc">To jest punkt wejścia programu _main. Zaczynam od finit, żeby przygotować koprocesor do obliczeń zmiennoprzecinkowych. W tym kodzie nie muszę używać sub esp, 24, ponieważ moje zmienne ocena, suma itd. są zdefiniowane globalnie w sekcji .data.</div>
+            </div>
+        </div>
+
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 3: Główna pętla i printf (Wersja EXE)</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">loop1:
+         push dword [prompt]  ; wrzucam wartość zmiennej prompt na stos
+         push format_1        ; wrzucam adres stringa format_1
+         call _printf         ; wywołuję systemowe printf
+         add esp, 2*4         ; sprzątam stos (2 argumenty * 4 bajty)</div>
+                <div class="asm-desc">W pętli pobieram bezpośrednio adresy zmiennych z sekcji .data. Jest to o wiele czytelniejsze niż w wersji pod asmloader. Wrzucam argumenty na stos od prawej do lewej, wołam funkcję systemową i czyszczę stos, aby zachować porządek w pamięci.</div>
+            </div>
+        </div>
+
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 4: Wczytywanie i sprawdzanie (scanf)</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">         push ocena           ; wrzucam ADRES zmiennej (scanf potrzebuje wskaźnika)
+         push format_2        ; wrzucam adres stringa "%lf"
+         call _scanf          ; pobieram liczbę
+         add esp, 2*4         ; czyszczę stos
+         cmp eax, 1           ; czy wczytano 1 liczbę?
+         jne error1           ; błąd -> czyść bufor</div>
+                <div class="asm-desc">Używam scanf z biblioteki standardowej. Podaję mu adres zmiennej ocena, żeby wiedział, gdzie zapisać wczytaną liczbę. Wynik w EAX mówi mi, czy wczytanie się udało (zwraca 1). Jeśli nie, skaczę do czyszczenia bufora, aby program się nie zapętlił na błędnych danych.</div>
+            </div>
+        </div>
+
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 5: Logika koprocesora (Warunek stopu i weryfikacja)</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">         fld qword [ocena]    ; ładuję ocenę na stos FPU
+         ftst                 ; sprawdzam czy to zero
+         fstsw ax             ; przesyłam status do AX
+         sahf                 ; kopiuję flagi do procesora głównego
+         jne skip1            ; jeśli nie zero, to kontynuuj sprawdzanie
+         fstp st0             ; jeśli zero, usuwam je ze stosu (kończę)
+         jmp exit1            ; skok do wyjścia</div>
+                <div class="asm-desc">Tutaj używam bardzo wydajnych instrukcji FPU. Porównuję wartość z zerem. Ponieważ koprocesor żyje 'własnym życiem', używam fstsw i sahf, żeby 'przetłumaczyć' wynik porównania na język flag procesora głównego (EFLAGS), co pozwala mi użyć instrukcji skoku jne.</div>
+            </div>
+        </div>
+
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 6: Obliczanie i wypisywanie wyniku</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">         fdivp st1, st0       ; dzielę sumę przez licznik
+         fstp qword [suma]    ; zapisuję wynik do zmiennej suma
+         push dword [suma+4]  ; wrzucam wyższą część double
+         push dword [suma]    ; wrzucam niższą część double
+         push format_3        ; wrzucam format
+         call _printf         ; drukuję wynik</div>
+                <div class="asm-desc">Po zakończeniu pętli dzielę sumę przez licznik używając fdivp. Ponieważ typ double zajmuje 8 bajtów, a stos procesora jest 4-bajtowy, muszę ręcznie wrzucić na stos dwie 4-bajtowe części liczby double, żeby printf poprawnie ją odczytał.</div>
+            </div>
+        </div>
+
+        <div class="asm-block">
+            <div class="asm-block-title">Blok 7: Zakończenie</div>
+            <div class="asm-entry">
+                <div class="asm-code-line">exit0:
+         push 0      
+         call _exit  ; systemowe zamknięcie programu</div>
+                <div class="asm-desc">Na samym końcu wywołuję systemową funkcję _exit, która zamyka program z kodem błędu 0 (czyli bez błędów).</div>
+            </div>
+        </div>
+
+        <div class="asm-block" style="border-color: #0056b3;">
+            <div class="asm-block-title" style="background: #0056b3;">Wskazówka na obronę</div>
+            <div class="asm-entry">
+                <div class="asm-desc"><strong>Jeśli wykładowca zapyta: "Dlaczego w tej wersji nie używasz call getaddr?", odpowiedz pewnie:</strong><br><br>"To jest wersja wykonywalna (.exe), w której mamy dostęp do sekcji .data. Dzięki temu mogę bezpośrednio odwoływać się do etykiet (format_1, ocena, suma) i nie muszę obliczać ich adresów w locie za pomocą skoków, jak to było wymagane w ograniczonym środowisku asmloadera."</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="zadanie">
+    <h2>Analiza Linia po Linii</h2>
     <div class="asm-viewer">
 
-        <!-- Blok 1 -->
+        <!-- Blok 1: Linia po linii -->
         <div class="asm-block">
-            <div class="asm-block-title">Blok 1: Importy z języka C</div>
-
+            <div class="asm-block-title">Blok 1: Nagłówki i Sekcje (Konfiguracja środowiska)</div>
+            
             <div class="asm-entry">
-                <div class="asm-code-line">extern _printf (i pozostałe)</div>
-                <div class="asm-desc">Słowo extern mówi kompilatorowi: "Będę używać takich funkcji, ale nie ma ich w tym pliku. System Windows (biblioteka języka C) dostarczy mi je podczas łączenia (linkowania) programu". W asmloaderze używaliśmy tablicy ebx, tutaj mamy dostęp do prawdziwych funkcji z systemu.</div>
+                <div class="asm-code-line">[bits 32]</div>
+                <div class="asm-desc">Deklaruję, że program ma zostać skompilowany do architektury 32-bitowej, co jest wymagane przez procesory x86.</div>
             </div>
-        </div>
-
-        <!-- Blok 2 -->
-        <div class="asm-block">
-            <div class="asm-block-title">Blok 2: Podział pamięci na sekcje</div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">// W prawdziwych programach exe pamięć jest podzielona na strefy.</div>
-                <div class="asm-desc">W odróżnieniu od asmloadera, tutaj mamy pełną kontrolę nad strukturą pamięci programu.</div>
+                <div class="asm-code-line">extern _printf</div>
+                <div class="asm-desc">Informuję asembler, że funkcja printf znajduje się w zewnętrznej bibliotece C systemu Windows i zostanie podłączona przy linkowaniu.</div>
             </div>
-
+            <div class="asm-entry">
+                <div class="asm-code-line">extern _scanf</div>
+                <div class="asm-desc">To samo dla funkcji scanf, która obsługuje wczytywanie danych.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">extern _getchar</div>
+                <div class="asm-desc">Importuję funkcję służącą do pobierania pojedynczego znaku z bufora.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">extern _exit</div>
+                <div class="asm-desc">Importuję funkcję kończącą program w systemie operacyjnym.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">global _main</div>
+                <div class="asm-desc">Definiuję _main jako główny punkt wejścia, którego szuka Windows przy uruchamianiu programu.</div>
+            </div>
             <div class="asm-entry">
                 <div class="asm-code-line">section .data</div>
-                <div class="asm-desc">Sekcja na dane zainicjowane. Tutaj wpisujesz na sztywno rzeczy, które program zna od początku: Twoje teksty (fmt1, fmt2, fmt3) oraz tablicę ocen (grades). Zwróć uwagę, że dzięki temu nie musimy już robić tych dziwnych trików z call get_fmt, bo zmienne mają swoje stałe adresy!</div>
+                <div class="asm-desc">Definiuję sekcję danych, w której przechowuję zmienne posiadające początkowe wartości (stałe).</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">section .bss</div>
-                <div class="asm-desc">Sekcja na dane niezainicjowane. Służy do rezerwowania pustego miejsca w pamięci.</div>
+                <div class="asm-code-line">format_1 db "%d ocena: ", 0</div>
+                <div class="asm-desc">Definiuję tekst wyświetlany użytkownikowi (zakończony znakiem 0).</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">ocena: resq 1</div>
-                <div class="asm-desc">"Reserve Quadword". Rezerwujemy 1 miejsce o rozmiarze 8 bajtów na ocenę, którą wpisze użytkownik. W wersji asmloader trzymaliśmy ją na stosie, tu zrobiliśmy ładną zmienną globalną.</div>
+                <div class="asm-code-line">format_2 db "%lf", 0</div>
+                <div class="asm-desc">Format dla scanf, oznaczający wczytanie liczby typu double (%lf).</div>
             </div>
-        </div>
-
-        <!-- Blok 3 -->
-        <div class="asm-block">
-            <div class="asm-block-title">Blok 3: Punkt startowy i GWÓŹDŹ PROGRAMU (Wyrównanie stosu)</div>
-
+            <div class="asm-entry">
+                <div class="asm-code-line">format_3 db 0xA, "srednia: %g", 0xA, 0</div>
+                <div class="asm-desc">Definiuję format wyniku (0xA to kod znaku nowej linii).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">grades dq 2.0, 3.0, 3.5, 4.0, 4.5, 5.0</div>
+                <div class="asm-desc">Deklaruję tablicę sześciu dozwolonych ocen (typ dq – 8 bajtów każda).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">ocena dq 0.0</div>
+                <div class="asm-desc">Rezerwuję 8 bajtów na wczytaną ocenę.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">suma dq 0.0</div>
+                <div class="asm-desc">Rezerwuję 8 bajtów na sumę ocen.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">licznik dd 0</div>
+                <div class="asm-desc">Rezerwuję 4 bajty na licznik ocen (dd – 4 bajty).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">prompt dd 1</div>
+                <div class="asm-desc">Rezerwuję 4 bajty na numer wyświetlanego pytania.</div>
+            </div>
             <div class="asm-entry">
                 <div class="asm-code-line">section .text</div>
-                <div class="asm-desc">Sekcja zawierająca sam kod wykonywalny (instrukcje procesora).</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">global _main / _main:</div>
-                <div class="asm-desc">Definiujemy główny punkt startowy programu, którego będzie szukał system Windows (odpowiednik int main() w C).</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">push ebp / mov ebp, esp</div>
-                <div class="asm-desc">Tworzymy standardową ramkę stosu.</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">and esp, -16</div>
-                <div class="asm-desc">BARDZO WAŻNE NA OBRONIE! To jest tzw. wyrównanie stosu (Stack Alignment). Oryginalna funkcja systemowa _scanf na Windowsie jest bardzo rygorystyczna. Jeśli każesz jej wczytać 8-bajtową liczbę zmiennoprzecinkową (double), adres na stosie musi być wielokrotnością liczby 16, inaczej program brutalnie się wysypie (Segmentation Fault). Ta logiczna instrukcja and po prostu obcina najmłodsze bity adresu, równając go w dół do bezpiecznych 16 bajtów.</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">sub esp, 32</div>
-                <div class="asm-desc">Rezerwujemy 32 bajty na nasze zmienne lokalne (suma, licznik, prompt). Ponieważ wyrównaliśmy stos do esp, od teraz odwołujemy się do zmiennych używając [esp+X] zamiast [ebp-X].</div>
+                <div class="asm-desc">Rozpoczynam sekcję kodu, w której znajdują się właściwe instrukcje programu.</div>
             </div>
         </div>
 
-        <!-- Blok 4 -->
+        <!-- Blok 2: Linia po linii -->
         <div class="asm-block">
-            <div class="asm-block-title">Blok 4: Inicjalizacja FPU</div>
-
+            <div class="asm-block-title">Blok 2: Inicjalizacja i Główna Pętla</div>
+            
             <div class="asm-entry">
-                <div class="asm-code-line">finit / fldz / fstp qword [esp+0]</div>
-                <div class="asm-desc">Uruchamiamy koprocesor, kładziemy 0.0 i zapisujemy je do naszej sumy pod adres [esp+0].</div>
+                <div class="asm-code-line">_main:</div>
+                <div class="asm-desc">Etykieta początku programu.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">mov dword [esp+16], 0</div>
-                <div class="asm-desc">Zerujemy licznik.</div>
+                <div class="asm-code-line">finit</div>
+                <div class="asm-desc">Resetuję koprocesor matematyczny (FPU), aby wyczyścić jego rejestry.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">mov dword [esp+20], 1</div>
-                <div class="asm-desc">Ustawiamy cyfrę promptu ("1 ocena:").</div>
+                <div class="asm-code-line">loop1:</div>
+                <div class="asm-desc">Etykieta początku pętli wczytywania ocen.</div>
             </div>
-        </div>
-
-        <!-- Blok 5 -->
-        <div class="asm-block">
-            <div class="asm-block-title">Blok 5: Pętla i wypisywanie (_printf)</div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">_loop:</div>
-                <div class="asm-desc">Początek pętli.</div>
+                <div class="asm-code-line">mov eax, [prompt]</div>
+                <div class="asm-desc">Kopiuję numer bieżącego pytania z pamięci do rejestru EAX.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">push dword [esp+20]</div>
-                <div class="asm-desc">Wrzucamy cyfrę promptu na stos.</div>
+                <div class="asm-code-line">push eax</div>
+                <div class="asm-desc">Wrzucam ten numer na stos jako argument dla printf.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">push fmt1</div>
-                <div class="asm-desc">Wrzucamy na stos adres naszego tekstu "%d ocena: ". Zauważ, jakie to teraz proste! Po prostu bierzemy etykietę z sekcji .data.</div>
+                <div class="asm-code-line">push format_1</div>
+                <div class="asm-desc">Wrzucam adres napisu zachęty na stos.</div>
             </div>
-
             <div class="asm-entry">
                 <div class="asm-code-line">call _printf</div>
-                <div class="asm-desc">Wywołujemy systemową funkcję C.</div>
+                <div class="asm-desc">Wywołuję systemową funkcję wyświetlającą tekst.</div>
             </div>
-
             <div class="asm-entry">
                 <div class="asm-code-line">add esp, 2*4</div>
-                <div class="asm-desc">Sprzątamy stos po wywołaniu (2 argumenty po 4 bajty).</div>
+                <div class="asm-desc">Usuwam ze stosu 8 bajtów (dwa argumenty), które wrzuciłem przed chwilą.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">lea eax, [ocena]</div>
+                <div class="asm-desc">Pobieram adres zmiennej ocena (wczytywanie przez wskaźnik).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push eax</div>
+                <div class="asm-desc">Wrzucam adres zmiennej na stos.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push format_2</div>
+                <div class="asm-desc">Wrzucam format "%lf" na stos.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">call _scanf</div>
+                <div class="asm-desc">Wywołuję funkcję wczytującą dane od użytkownika.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">add esp, 2*4</div>
+                <div class="asm-desc">Sprzątam stos po wywołaniu scanf.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">cmp eax, 1</div>
+                <div class="asm-desc">Sprawdzam wynik scanf – powinien zwrócić 1, jeśli wczytano liczbę.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jne error1</div>
+                <div class="asm-desc">Jeśli nie wczytano poprawnej liczby (np. wpisano litery), skaczę do obsługi błędu.</div>
             </div>
         </div>
 
-        <!-- Blok 6 -->
+        <!-- Blok 3: Linia po linii -->
         <div class="asm-block">
-            <div class="asm-block-title">Blok 6: Wczytywanie z klawiatury (_scanf)</div>
-
+            <div class="asm-block-title">Blok 3: Logika sprawdzania danych (FPU)</div>
+            
             <div class="asm-entry">
-                <div class="asm-code-line">push ocena</div>
-                <div class="asm-desc">Wrzucamy na stos adres naszego pustego miejsca zarezerwowanego w sekcji .bss. Tam scanf wpisze liczbę.</div>
+                <div class="asm-code-line">fld qword [ocena]</div>
+                <div class="asm-desc">Kładę wczytaną liczbę na wierzchołek stosu koprocesora (st0).</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">push fmt2</div>
-                <div class="asm-desc">Wrzucamy format "%lf".</div>
+                <div class="asm-code-line">ftst</div>
+                <div class="asm-desc">Porównuję wartość na szczycie FPU z zerem (0.0).</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">call _scanf / add esp, 2*4</div>
-                <div class="asm-desc">Wywołujemy scanf i sprzątamy stos.</div>
+                <div class="asm-code-line">fstsw ax</div>
+                <div class="asm-desc">Kopiuję stan koprocesora do rejestru AX.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">cmp eax, 1 / jne _flush</div>
-                <div class="asm-desc">scanf zwraca w eax jedynkę, jeśli się udało. Jeśli wpisałeś litery, skaczemy czyścić bufor.</div>
+                <div class="asm-code-line">sahf</div>
+                <div class="asm-desc">Przenoszę flagi z AX do flag procesora CPU, aby umożliwić skoki.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jne skip1</div>
+                <div class="asm-desc">Jeśli liczba nie jest zerem, skaczę do weryfikacji w tablicy.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fstp st0</div>
+                <div class="asm-desc">Jeśli liczba była zerem, zdejmuję ją ze stosu FPU i kończę.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jmp exit1</div>
+                <div class="asm-desc">Skaczę do obliczeń średniej.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">skip1: fstp st0</div>
+                <div class="asm-desc">Usuwam ocenę ze stosu FPU, bo przed chwilą tylko ją testowałem.</div>
             </div>
         </div>
 
-        <!-- Blok 7 -->
+        <!-- Blok 4: Linia po linii -->
         <div class="asm-block">
-            <div class="asm-block-title">Blok 7: Sprawdzanie czy wpisano zero</div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">fld qword [ocena] / fldz / fcomip st0, st1 / je _end_input</div>
-                <div class="asm-desc">Ładujemy wpisaną ocenę i 0.0 na FPU, porównujemy i skaczemy do końca pętli, jeśli są równe. Identycznie jak w wersji asmloader.</div>
-            </div>
-        </div>
-
-        <!-- Blok 8 -->
-        <div class="asm-block">
-            <div class="asm-block-title">Blok 8: Weryfikacja ocen w tablicy</div>
-
+            <div class="asm-block-title">Blok 4: Weryfikacja oceny w tablicy</div>
+            
             <div class="asm-entry">
                 <div class="asm-code-line">mov ecx, 6</div>
-                <div class="asm-desc">Licznik pętli (6 ocen dozwolonych w Polsce).</div>
+                <div class="asm-desc">Ustawiam licznik pętli sprawdzającej na 6 elementów.</div>
             </div>
-
+            <div class="asm-entry">
+                <div class="asm-code-line">check1:</div>
+                <div class="asm-desc">Początek pętli porównującej wpis z tablicą.</div>
+            </div>
             <div class="asm-entry">
                 <div class="asm-code-line">fld qword [grades + ecx*8 - 8]</div>
-                <div class="asm-desc">Kolejne duże ułatwienie! Sięgamy bezpośrednio do tablicy grades z sekcji .data. Mnożymy licznik przez 8 (bo double to 8 bajtów), żeby przeskakiwać między elementami tablicy.</div>
+                <div class="asm-desc">Ładuję na FPU kolejną ocenę z mojej tablicy.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">fcomip st0, st1 / je _valid</div>
-                <div class="asm-desc">Jeśli ocena pasuje do tej z tablicy, skaczemy do jej dodania.</div>
+                <div class="asm-code-line">fld qword [ocena]</div>
+                <div class="asm-desc">Ładuję wpisaną ocenę na FPU.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">loop _check</div>
-                <div class="asm-desc">Zmniejsza ecx. Jak nie jest zerem, sprawdza kolejną.</div>
+                <div class="asm-code-line">fcomip st0, st1</div>
+                <div class="asm-desc">Porównuję te dwie wartości i zdejmuję jeden argument ze stosu.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">fstp st0 / jmp _loop</div>
-                <div class="asm-desc">Jak żadna nie pasowała, wyrzucamy śmieć ze stosu FPU i wracamy na początek.</div>
+                <div class="asm-code-line">fstp st0</div>
+                <div class="asm-desc">Usuwam drugi argument (sprzątam stos FPU).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">je valid1</div>
+                <div class="asm-desc">Jeśli oceny są równe, to wpisano poprawną wartość – skaczę do valid1.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">loop check1</div>
+                <div class="asm-desc">Zmniejszam ecx i jeśli nie jest zerem, wracam sprawdzić kolejną ocenę.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jmp loop1</div>
+                <div class="asm-desc">Jeśli sprawdziłem całą tablicę i nic nie pasowało, ignoruję to i pytam ponownie.</div>
             </div>
         </div>
 
-        <!-- Blok 9 -->
+        <!-- Blok 5: Linia po linii -->
         <div class="asm-block">
-            <div class="asm-block-title">Blok 9: Czyszczenie bufora (_flush)</div>
-
+            <div class="asm-block-title">Blok 5: Obsługa błędów i aktualizacja sumy</div>
+            
+            <div class="asm-entry">
+                <div class="asm-code-line">error1:</div>
+                <div class="asm-desc">Tutaj czyszczę bufor wejściowy, jeśli użytkownik wpisał tekst.</div>
+            </div>
             <div class="asm-entry">
                 <div class="asm-code-line">call _getchar</div>
-                <div class="asm-desc">Wywołuje systemowe pobranie pojedynczego, zepsutego znaku z klawiatury.</div>
+                <div class="asm-desc">Pobieram jeden znak z klawiatury.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">cmp eax, 10 / je _loop</div>
-                <div class="asm-desc">Sprawdza, czy dotarliśmy do klawisza Enter (ASCII 10). Jak tak, wracamy do początku.</div>
+                <div class="asm-code-line">cmp al, 0x0A</div>
+                <div class="asm-desc">Sprawdzam, czy to był Enter (kod 10).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jne error1</div>
+                <div class="asm-desc">Jeśli nie, czytam dalej aż do końca linii.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jmp loop1</div>
+                <div class="asm-desc">Po wyczyszczeniu bufora wracam do pytania o ocenę.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">valid1:</div>
+                <div class="asm-desc">Jeśli ocena jest poprawna.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fld qword [suma]</div>
+                <div class="asm-desc">Kładę aktualną sumę na FPU.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fadd qword [ocena]</div>
+                <div class="asm-desc">Dodaję do niej nową ocenę.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fstp qword [suma]</div>
+                <div class="asm-desc">Zapisuję nowy wynik w pamięci.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">inc dword [licznik]</div>
+                <div class="asm-desc">Inkrementuję licznik poprawnych ocen.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">inc dword [prompt]</div>
+                <div class="asm-desc">Inkrementuję numer pytania.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jmp loop1</div>
+                <div class="asm-desc">Wracam do pobierania kolejnej oceny.</div>
             </div>
         </div>
 
-        <!-- Blok 10 -->
+        <!-- Blok 6: Linia po linii -->
         <div class="asm-block">
-            <div class="asm-block-title">Blok 10: Dodawanie poprawnej oceny (_valid)</div>
-
+            <div class="asm-block-title">Blok 6: Obliczenia i wyjście</div>
+            
             <div class="asm-entry">
-                <div class="asm-code-line">fld qword [esp+0] / faddp st1, st0 / fstp qword [esp+0]</div>
-                <div class="asm-desc">Kładziemy sumę, dodajemy do niej aktualną ocenę, a wynik ściągamy z powrotem do pamięci pod adres [esp+0].</div>
+                <div class="asm-code-line">exit1:</div>
+                <div class="asm-desc">Tu trafiam, gdy wpisano 0.</div>
             </div>
-
             <div class="asm-entry">
-                <div class="asm-code-line">inc dword [esp+16] / inc dword [esp+20] / jmp _loop</div>
-                <div class="asm-desc">Zwiększamy licznik i prompt, wracamy na początek.</div>
+                <div class="asm-code-line">cmp dword [licznik], 0</div>
+                <div class="asm-desc">Sprawdzam, czy cokolwiek wpisano.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">je empty1</div>
+                <div class="asm-desc">Jeśli nie, skaczę do obsługi przypadku z zerem ocen.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fld qword [suma]</div>
+                <div class="asm-desc">Kładę sumę na FPU.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fild dword [licznik]</div>
+                <div class="asm-desc">Ładuję licznik na FPU (konwertując go z int na double).</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fdivp st1, st0</div>
+                <div class="asm-desc">Dzielę sumę przez licznik.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">fstp qword [suma]</div>
+                <div class="asm-desc">Wynik (średnią) zapisuję z powrotem w pamięci.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push dword [suma+4]</div>
+                <div class="asm-desc">Wrzucam wyższą połowę średniej na stos dla printf.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push dword [suma]</div>
+                <div class="asm-desc">Wrzucam niższą połowę średniej na stos.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push format_3</div>
+                <div class="asm-desc">Wrzucam format wyniku na stos.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">call _printf</div>
+                <div class="asm-desc">Wypisuję wynik.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">add esp, 3*4</div>
+                <div class="asm-desc">Sprzątam stos po wypisaniu wyniku.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">jmp exit0</div>
+                <div class="asm-desc">Kończę program.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">empty1:</div>
+                <div class="asm-desc">Obsługa przypadku "brak danych".</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push 0, push 0</div>
+                <div class="asm-desc">Wrzucam dwa zera na stos jako 0.0.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">call _printf</div>
+                <div class="asm-desc">Wypisuję średnią 0.0.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">exit0:</div>
+                <div class="asm-desc">Etykieta końcowa.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">push 0</div>
+                <div class="asm-desc">Kod sukcesu.</div>
+            </div>
+            <div class="asm-entry">
+                <div class="asm-code-line">call _exit</div>
+                <div class="asm-desc">Kończę działanie programu.</div>
             </div>
         </div>
 
-        <!-- Blok 11 -->
-        <div class="asm-block">
-            <div class="asm-block-title">Blok 11: Obliczanie średniej (_end_input i _zero_avg)</div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">cmp dword [esp+16], 0 / je _zero_avg</div>
-                <div class="asm-desc">Ochrona przed dzieleniem przez 0.</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">fld qword [esp+0] / fild dword [esp+16] / fdivp st1, st0</div>
-                <div class="asm-desc">Ładujemy sumę (double) oraz licznik (int - konwertowany w locie dzięki instrukcji fild). Dzielimy jedno przez drugie. Wynik (średnia) zostaje na szczycie FPU.</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">_zero_avg: fldz</div>
-                <div class="asm-desc">Baza dla braku ocen (kładzie 0.0 na FPU).</div>
-            </div>
-        </div>
-
-        <!-- Blok 12 -->
-        <div class="asm-block">
-            <div class="asm-block-title">Blok 12: Wypisywanie i zamykanie programu (_print)</div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">sub esp, 8 / fstp qword [esp]</div>
-                <div class="asm-desc">Robimy miejsce na stosie i wpychamy na niego wyliczoną średnią prosto z FPU.</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">push fmt3 / call _printf</div>
-                <div class="asm-desc">Wrzucamy napis "\nsrednia: %g\n" i wywołujemy systemowego printfa.</div>
-            </div>
-
-            <div class="asm-entry">
-                <div class="asm-code-line">push 0 / call _exit</div>
-                <div class="asm-desc">Wrzucamy kod sukcesu (0) i prosimy system Windows o czyste zamknięcie naszego programu za pomocą wywołania systemowego _exit().</div>
-            </div>
-        </div>
-
-    </div><!-- /.asm-viewer -->
-
-
+    </div>
 </div>
 
 </body>
