@@ -138,8 +138,9 @@ ocena    dq 0.0                            ; Zmienne w pamięci (w wersji EXE s�
         <div class="asm-block">
             <div class="asm-block-title">Blok 4: Wczytywanie i sprawdzanie (scanf)</div>
             <div class="asm-entry">
-                <div class="asm-code-line">         push ocena           ; wrzucam ADRES zmiennej (scanf potrzebuje wskaźnika)
-         push format_2        ; wrzucam adres stringa "%lf"
+                <div class="asm-code-line">         lea eax, [ocena]     ; wrzucam ADRES zmiennej (scanf potrzebuje wskaźnika)
+         push eax             ; wrzucam na stos dla scanf
+         push format_2        ; wrzucam format "%lf"
          call _scanf          ; pobieram liczbę
          add esp, 2*4         ; czyszczę stos
          cmp eax, 1           ; czy wczytano 1 liczbę?
@@ -151,37 +152,52 @@ ocena    dq 0.0                            ; Zmienne w pamięci (w wersji EXE s�
         <div class="asm-block">
             <div class="asm-block-title">Blok 5: Logika koprocesora (Warunek stopu i weryfikacja)</div>
             <div class="asm-entry">
-                <div class="asm-code-line">         fld qword [ocena]    ; ładuję ocenę na stos FPU
-         ftst                 ; sprawdzam czy to zero
-         fstsw ax             ; przesyłam status do AX
-         sahf                 ; kopiuję flagi do procesora głównego
-         jne skip1            ; jeśli nie zero, to kontynuuj sprawdzanie
-         fstp st0             ; jeśli zero, usuwam je ze stosu (kończę)
-         jmp exit1            ; skok do wyjścia</div>
-                <div class="asm-desc">Tutaj używam bardzo wydajnych instrukcji FPU. Porównuję wartość z zerem. Ponieważ koprocesor żyje 'własnym życiem', używam fstsw i sahf, żeby 'przetłumaczyć' wynik porównania na język flag procesora głównego (EFLAGS), co pozwala mi użyć instrukcji skoku jne.</div>
+                <div class="asm-code-line">         jmp exit1             ; skok jeśli wczytano 0.0
+skip1:   fstp st0              ; czyszczenie stosu FPU
+         mov ecx, 6            ; licznik dla 6 ocen
+check1:  fld qword [grades + ecx*8 - 8]  ; ładuję ocenę z tablicy
+         fld qword [ocena]     ; ładuję ocenę wpisaną
+         fcomip st0, st1       ; porównaj i zdejmij ze stosu
+         je valid1             ; jeśli równe, to ocena poprawna
+         loop check1           ; sprawdź kolejną ocenę w tablicy
+         jmp loop1             ; jeśli żadna nie pasuje, wróć po nową ocenę</div>
+                <div class="asm-desc">Tutaj porównuję ocenę użytkownika z tablicą dozwolonych ocen. Używam fcomip, która porównuje wartości i jednocześnie sprząta stos FPU. Jeśli znajdę pasującą wartość (je valid1), przechodzę do dodawania, w przeciwnym razie wracam do pobierania danych."</div>
             </div>
         </div>
 
         <div class="asm-block">
             <div class="asm-block-title">Blok 6: Obliczanie i wypisywanie wyniku</div>
             <div class="asm-entry">
-                <div class="asm-code-line">         fdivp st1, st0       ; dzielę sumę przez licznik
-         fstp qword [suma]    ; zapisuję wynik do zmiennej suma
-         push dword [suma+4]  ; wrzucam wyższą część double
-         push dword [suma]    ; wrzucam niższą część double
-         push format_3        ; wrzucam format
-         call _printf         ; drukuję wynik</div>
-                <div class="asm-desc">Po zakończeniu pętli dzielę sumę przez licznik używając fdivp. Ponieważ typ double zajmuje 8 bajtów, a stos procesora jest 4-bajtowy, muszę ręcznie wrzucić na stos dwie 4-bajtowe części liczby double, żeby printf poprawnie ją odczytał.</div>
+                <div class="asm-code-line">error1:  call _getchar         ; pobierz znak
+         cmp al, 0x0A          ; czy to Enter?
+         jne error1            ; jeśli nie, czyść dalej
+         jmp loop1             ; wróć po nową ocenę
+valid1:  fld qword [suma]      ; dodawanie: suma + ocena
+         fadd qword [ocena]    ; suma = suma + ocena
+         fstp qword [suma]     ; zapisz wynik
+         inc dword [licznik]   ; licznik++
+         inc dword [prompt]    ; prompt++
+         jmp loop1             ; wróć po kolejną liczbę</div>
+                <div class="asm-desc">W error1 czyszczę 'śmieci' z bufora za pomocą getchar aż do znaku nowej linii. W valid1 używam instrukcji fadd na koprocesorze, żeby bezpiecznie dodać liczbę typu double do sumy, po czym zwiększam liczniki.</div>
             </div>
         </div>
 
         <div class="asm-block">
             <div class="asm-block-title">Blok 7: Zakończenie</div>
             <div class="asm-entry">
-                <div class="asm-code-line">exit0:
-         push 0      
-         call _exit  ; systemowe zamknięcie programu</div>
-                <div class="asm-desc">Na samym końcu wywołuję systemową funkcję _exit, która zamyka program z kodem błędu 0 (czyli bez błędów).</div>
+                <div class="asm-code-line">exit1:   cmp dword [licznik], 0  ; czy cokolwiek wpisano?
+         je empty1             ; jeśli nie, skocz do empty1
+         fld qword [suma]      ; suma / licznik
+         fild dword [licznik]  ; zamiana int na double
+         fdivp st1, st0        ; dzielenie
+         push dword [suma+4]   ; wypisywanie: wrzucam 8 bajtów (2x4)
+         push dword [suma]     ; na stos dla printf
+         push format_3         ; format wyniku
+         call _printf          ; drukuj
+         jmp exit0             ; koniec programu
+empty1:  push 0, push 0, push format_3, call _printf ; drukuj średnią 0.0
+exit0:   push 0, call _exit    ; zamknij program</div>
+                <div class="asm-desc">Na końcu dzielę sumę przez licznik, używając fild do konwersji typu int na double. Wynik wypisuję, wrzucając go na stos w dwóch częściach po 4 bajty, ponieważ printf w systemie 32-bitowym oczekuje argumentów 4-bajtowych."</div>
             </div>
         </div>
 
